@@ -5,6 +5,7 @@ export default function SideNav({ activePage, setActivePage }) {
         {
             label: 'Monitoring',
             items: [
+                { id: 'home', icon: '🏠', label: 'Home', badge: null },
                 { id: 'dashboard', icon: '📊', label: 'Overview', badge: null },
                 { id: 'stressview', icon: '🌡️', label: 'Stress-Vision', badge: 'LIVE' },
                 { id: 'pipeline', icon: '⚡', label: 'AI Pipeline', badge: null },

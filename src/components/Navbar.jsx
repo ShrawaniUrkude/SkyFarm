@@ -3,6 +3,7 @@ import './Navbar.css';
 
 export default function Navbar({ activePage, setActivePage }) {
     const navItems = [
+        { id: 'home', label: 'Home', icon: '🏠' },
         { id: 'dashboard', label: 'Dashboard', icon: '📊' },
         { id: 'stressview', label: 'Stress-Vision', icon: '🔬' },
         { id: 'pipeline', label: 'Pipeline', icon: '⚡' },

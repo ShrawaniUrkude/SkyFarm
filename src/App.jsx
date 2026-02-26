@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
 import SideNav from './components/SideNav';
 import Dashboard from './pages/Dashboard';
+import Home from './pages/Home';
 import StressView from './pages/StressView';
 import Pipeline from './pages/Pipeline';
 import AlertCenter from './pages/AlertCenter';
@@ -31,7 +32,7 @@ function StarField() {
 
 /* ─── App ───────────────────────────────────────────────────────────────── */
 export default function App() {
-  const [activePage, setActivePage] = useState('dashboard');
+  const [activePage, setActivePage] = useState('home');
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -46,6 +47,7 @@ export default function App() {
 
   const renderPage = () => {
     switch (activePage) {
+      case 'home': return <Home setActivePage={setActivePage} />;
       case 'dashboard': return <Dashboard setActivePage={setActivePage} />;
       case 'stressview': return <StressView />;
       case 'pipeline': return <Pipeline />;
@@ -55,7 +57,7 @@ export default function App() {
       case 'compare': return <FieldCompare />;
       case 'satellites': return <Satellites />;
       case 'reports': return <Reports />;
-      default: return <Dashboard setActivePage={setActivePage} />;
+      default: return <Home setActivePage={setActivePage} />;
     }
   };
 
@@ -106,7 +108,7 @@ function LoadingSplash() {
           {/* Spinning satellite */}
           <g style={{ animation: 'spin 2.5s linear infinite', transformOrigin: '60px 60px' }}>
             <circle cx="110" cy="60" r="5" fill="#00e5ff" />
-            <rect x="103" cy="55" x="103" y="53" width="14" height="3" rx="1" fill="#00e5ff" opacity="0.6" />
+            <rect x="103" y="53" width="14" height="3" rx="1" fill="#00e5ff" opacity="0.6" />
             <rect x="103" y="63" width="14" height="3" rx="1" fill="#00e5ff" opacity="0.6" />
           </g>
         </svg>
