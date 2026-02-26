@@ -324,7 +324,7 @@ export default function Home({ setActivePage }) {
                         { val: 247, unit: ' ha', dec: 0, label: 'Area Monitored', icon: '🌍' },
                         { val: 94, unit: '%', dec: 0, label: 'Pre-Visual Accuracy', icon: '🎯' },
                         { val: 6.8, unit: 's', dec: 1, label: 'Processing Latency', icon: '⚡' },
-                        { val: 10, unit, dec: 0, label: 'Day Detection Lead', icon: '📅', unit: '+' },
+                        { val: 10, dec: 0, label: 'Day Detection Lead', icon: '📅', unit: '+' },
                         { val: 3, unit: '', dec: 0, label: 'Satellites Active', icon: '🛰️' },
                         { val: 100, unit: '%', dec: 0, label: 'Open Standard APIs', icon: '🔗' },
                     ].map(s => (
