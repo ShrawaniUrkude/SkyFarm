@@ -5,26 +5,33 @@ export default function SideNav({ activePage, setActivePage }) {
         {
             label: 'Monitoring',
             items: [
-                { id: 'home', icon: '🏠', label: 'Home', badge: null },
-                { id: 'dashboard', icon: '📊', label: 'Overview', badge: null },
-                { id: 'stressview', icon: '🌡️', label: 'Stress-Vision', badge: 'LIVE' },
-                { id: 'pipeline', icon: '⚡', label: 'AI Pipeline', badge: null },
-                { id: 'alerts', icon: '🚨', label: 'Alert Center', badge: '4' },
+                { id: 'home',      icon: '🏠', label: 'Home',          badge: null },
+                { id: 'pipeline',  icon: '⚡', label: 'AI Pipeline',    badge: null },
+                { id: 'alerts',    icon: '🚨', label: 'Alert Center',   badge: '4' },
             ]
         },
         {
             label: 'Analysis',
             items: [
-                { id: 'spectral', icon: '🔬', label: 'Spectral View', badge: 'NEW' },
-                { id: 'history', icon: '📈', label: 'Time Series', badge: null },
-                { id: 'compare', icon: '🗺️', label: 'Field Compare', badge: null },
+                { id: 'analyze',  icon: '🛰️', label: 'Analyze Field',  badge: null },
+                { id: 'nutrients',icon: '🌿', label: 'Nutrients',       badge: null },
+                { id: 'water',    icon: '💧', label: 'Water Level',     badge: null },
+                { id: 'spectral', icon: '🔬', label: 'Spectral View',   badge: 'NEW' },
+                { id: 'history',  icon: '📈', label: 'Time Series',     badge: null },
+                { id: 'compare',  icon: '🗺️', label: 'Field Compare',   badge: null },
+            ]
+        },
+        {
+            label: 'Operations',
+            items: [
+                { id: 'globalops',icon: '🌍', label: 'Global Ops',     badge: 'LIVE' },
             ]
         },
         {
             label: 'System',
             items: [
                 { id: 'satellites', icon: '🛰️', label: 'Satellites', badge: null },
-                { id: 'reports', icon: '📄', label: 'Reports', badge: null },
+                { id: 'reports',    icon: '📄', label: 'Reports',     badge: null },
             ]
         }
     ];
@@ -41,6 +48,7 @@ export default function SideNav({ activePage, setActivePage }) {
                             className={`side-nav-item ${activePage === item.id ? 'active' : ''}`}
                             onClick={() => setActivePage(item.id)}
                         >
+                            <span className="side-nav-item-icon">{item.icon}</span>
                             <span className="side-nav-item-label">{item.label}</span>
                             {item.badge && (
                                 <span className={`side-nav-item-badge ${item.badge === 'NEW' || item.badge === 'LIVE' ? 'new' : ''}`}>

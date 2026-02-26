@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import useAIInsight from '../hooks/useAIInsight';
+import AIInsightPanel from '../components/AIInsightPanel';
 
 /* ──────────────────────────────────────────────────────────────────────────
    Tile map math helpers (Web Mercator / Slippy Map)
@@ -338,23 +340,45 @@ function StressGauge({ pct, color }) {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
+   Global Regions quick-jump data
+────────────────────────────────────────────────────────────────────────── */
+const GLOBAL_REGIONS = [
+    { label: '🇮🇳 South Asia',   lat: 20.59,  lon: 78.96,  zoom: 5, color: '#ffd60a' },
+    { label: '🌍 Africa',       lat: 0.0,    lon: 20.0,   zoom: 4, color: '#ff6b2b' },
+    { label: '🌾 Punjab Belt',  lat: 30.9,   lon: 75.8,   zoom: 7, color: '#00ff88' },
+    { label: '🌿 Brazil AgBlt', lat: -14.2,  lon: -51.9,  zoom: 5, color: '#aaff00' },
+    { label: '🇺🇸 US Midwest',  lat: 41.5,   lon: -93.5,  zoom: 5, color: '#00e5ff' },
+    { label: '🇪🇺 EU Farmland', lat: 48.5,   lon: 9.0,    zoom: 5, color: '#ff3864' },
+];
+
+/* ──────────────────────────────────────────────────────────────────────────
    Main Page
-─────────────────────────────────────────────────────────────────────────── */
+────────────────────────────────────────────────────────────────────────── */
 export default function GlobalOpsCenter() {
     const [selectedPin, setSelectedPin] = useState(null);
     const [locData, setLocData] = useState(null);
     const [analyzing, setAnalyzing] = useState(false);
     const [searchLat, setSearchLat] = useState('');
     const [searchLon, setSearchLon] = useState('');
+    const [recentPins, setRecentPins] = useState([]);
+    const [dataTab, setDataTab] = useState('overview');
+    const { solution: aiSolution, loading: aiLoading, error: aiError, model: aiModel, fetchInsight, clear: clearAI } = useAIInsight();
 
     const handleLocationSelect = useCallback((lat, lon) => {
         setSelectedPin({ lat, lon });
         setAnalyzing(true);
         setLocData(null);
+        setDataTab('overview');
+        clearAI();
         // Simulate brief analysis delay
         setTimeout(() => {
-            setLocData(generateLocationData(lat, lon));
+            const data = generateLocationData(lat, lon);
+            setLocData(data);
             setAnalyzing(false);
+            setRecentPins(prev => {
+                const entry = { lat, lon, alertLevel: data.alertLevel, cropType: data.cropType, stressPct: data.stressPct, ts: Date.now() };
+                return [entry, ...prev.filter(p => !(Math.abs(p.lat - lat) < 0.01 && Math.abs(p.lon - lon) < 0.01))].slice(0, 6);
+            });
         }, 650);
     }, []);
 
@@ -368,20 +392,51 @@ export default function GlobalOpsCenter() {
 
     return (
         <section className="page-section" id="ops-center-page">
-            {/* Header */}
-            <div className="section-header">
+            {/* ── Animated header ── */}
+            <div className="section-header" style={{ position: 'relative', overflow: 'hidden' }}>
                 <div className="section-title-group">
-                    <div className="section-eyebrow">🌍 Global Operations Center</div>
+                    <div className="section-eyebrow" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <span style={{ fontSize: '1.2rem', animation: 'spin 12s linear infinite', display: 'inline-block' }}>🌍</span>
+                        Global Operations Center
+                        <span style={{ padding: '2px 8px', borderRadius: '4px', background: 'rgba(0,229,255,0.12)', border: '1px solid rgba(0,229,255,0.3)', color: '#00e5ff', fontSize: '0.6rem', fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '0.08em', animation: 'globalOpsLiveBlink 1.8s ease infinite' }}>⬤ LIVE</span>
+                    </div>
                     <h1 className="section-title">Live Location Intelligence</h1>
                     <p className="section-desc">
-                        Click anywhere on the map to select a location and instantly receive satellite-derived
-                        crop stress, spectral indices, weather, soil and nutrient data for that exact coordinate.
+                        Click anywhere on the map to instantly receive satellite-derived crop stress, spectral indices,
+                        weather, soil &amp; nutrient data for that exact coordinate — or pick a global region below.
                     </p>
                 </div>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-end', flexShrink: 0 }}>
                     {locData && <span className={`badge badge-${locData.alertLevel === 'CRITICAL' ? 'critical' : locData.alertLevel === 'MONITOR' ? 'moderate' : 'done'}`} style={{ fontSize: '0.65rem' }}>{cfg.icon} {locData.alertLevel}</span>}
-                    <span className="badge badge-running" style={{ fontSize: '0.65rem' }}>● LIVE</span>
+                    <span className="badge badge-running" style={{ fontSize: '0.65rem' }}>● LIVE · Sentinel-2</span>
+                    <span style={{ fontSize: '0.6rem', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)' }}>
+                        {recentPins.length} location{recentPins.length !== 1 ? 's' : ''} analysed
+                    </span>
                 </div>
+            </div>
+
+            {/* ── Global Regions Quick-Select ── */}
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '16px', flexWrap: 'wrap' }}>
+                {GLOBAL_REGIONS.map(r => {
+                    const rd = generateLocationData(r.lat, r.lon);
+                    const rc = ALERT_CFG[rd.alertLevel];
+                    return (
+                        <div key={r.label} className="ops-region-card" style={{ '--ops-region-color': r.color }}
+                            onClick={() => handleLocationSelect(r.lat, r.lon)}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-text-primary)' }}>{r.label}</span>
+                                <span style={{ fontSize: '0.6rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: rc.color }}>{rc.icon}</span>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <div style={{ flex: 1, height: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '2px', overflow: 'hidden' }}>
+                                    <div style={{ width: `${rd.stressPct}%`, height: '100%', background: `linear-gradient(90deg,${rc.color}88,${rc.color})`, transition: 'width 0.6s ease' }} />
+                                </div>
+                                <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: rc.color, flexShrink: 0 }}>{rd.stressPct}%</span>
+                            </div>
+                            <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>NDVI {rd.ndvi} · {rd.cropType}</div>
+                        </div>
+                    );
+                })}
             </div>
 
             {/* Search bar */}
@@ -395,17 +450,33 @@ export default function GlobalOpsCenter() {
                 <button className="btn btn-ghost btn-sm" onClick={() => handleLocationSelect(28.6139, 77.2090)} style={{ padding: '8px 14px', fontSize: '0.75rem', flexShrink: 0 }}>📍 My Location (Delhi)</button>
             </div>
 
-            {/* Map */}
-            <div style={{ marginBottom: '20px' }}>
+            {/* ── Map with scan overlay ── */}
+            <div style={{ marginBottom: '20px', position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,229,255,0.2)', boxShadow: '0 0 32px rgba(0,229,255,0.07)' }}>
                 <TileMap onLocationSelect={handleLocationSelect} selectedPin={selectedPin} />
+                {/* Scan overlay */}
+                <div className="ops-scan-overlay">
+                    <div className="ops-scan-line" />
+                </div>
+                {/* Corner HUD brackets */}
+                {[
+                    { top: 0, left: 0, borderTop: '2px solid #00e5ff', borderLeft: '2px solid #00e5ff' },
+                    { top: 0, right: 0, borderTop: '2px solid #00e5ff', borderRight: '2px solid #00e5ff' },
+                    { bottom: 0, left: 0, borderBottom: '2px solid #00e5ff', borderLeft: '2px solid #00e5ff' },
+                    { bottom: 0, right: 0, borderBottom: '2px solid #00e5ff', borderRight: '2px solid #00e5ff' },
+                ].map((s, i) => (
+                    <div key={i} style={{ position: 'absolute', width: 16, height: 16, pointerEvents: 'none', ...s }} />
+                ))}
             </div>
 
             {/* Data panel */}
+            {/* ── empty state ── */}
             {!selectedPin && !analyzing && (
-                <div className="card" style={{ textAlign: 'center', padding: '50px 24px', opacity: 0.5 }}>
-                    <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🌍</div>
-                    <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--color-text-secondary)', marginBottom: '6px' }}>Click anywhere on the map above to analyze that location</div>
-                    <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>Pan by dragging · Zoom with scroll · Use quick-jump buttons on the left</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginTop: '4px' }}>
+                    <div className="card" style={{ textAlign: 'center', padding: '40px 24px', opacity: 0.7, gridColumn: '1 / -1' }}>
+                        <div style={{ fontSize: '3rem', marginBottom: '12px' }}>🌍</div>
+                        <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--color-text-secondary)', marginBottom: '6px' }}>Click the map or a region card above to analyse that location</div>
+                        <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>Pan by dragging · Scroll to zoom · Use quick-jump buttons inside the map</div>
+                    </div>
                 </div>
             )}
 
@@ -526,9 +597,9 @@ export default function GlobalOpsCenter() {
                     </div>
                 </div>
 
-                {/* Advisory */}
-                <div className="card" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
-                    <div className="card-header"><span className="card-title">🌾 AI Field Advisory</span><span style={{ fontSize: '0.65rem', color: cfg.color }}>{cfg.icon} {locData.alertLevel}</span></div>
+                {/* Solution */}
+                <div className="card" style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, marginBottom: '16px' }}>
+                    <div className="card-header"><span className="card-title">🌾 AI Field Solution</span><span style={{ fontSize: '0.65rem', color: cfg.color }}>{cfg.icon} {locData.alertLevel}</span></div>
                     <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
                         {locData.alertLevel === 'SAFE' && `✅ Location ${locData.lat.toFixed(3)}°N is in HEALTHY condition. NDVI: ${locData.ndvi} (good vegetation cover). Soil moisture: ${locData.soilMoist}% (adequate). Temperature: ${locData.temp}°C. Continue routine 5-day satellite monitoring. Yield estimate: ${locData.yieldEst} t/ha — on track.`}
                         {locData.alertLevel === 'MONITOR' && `⚠️ MODERATE STRESS at ${locData.lat.toFixed(3)}°N — stress at ${locData.stressPct}%. NDVI declining to ${locData.ndvi}. MSI elevated at ${locData.msi} (water stress signal). N-deficit: ${locData.nutrients.N}%. Recommended: Schedule irrigation within 48h. Apply 20kg/ha foliar nitrogen. Re-analyze in 3 days. Yield risk: ${locData.yieldRisk}.`}
@@ -537,7 +608,51 @@ export default function GlobalOpsCenter() {
                     <div style={{ marginTop: '14px', padding: '10px 14px', borderRadius: '8px', background: 'rgba(0,0,0,0.25)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: '#00e5ff', border: '1px solid rgba(0,229,255,0.15)' }}>
                         📱 SMS: [SkyFarm] {locData.alertLevel} at {locData.lat.toFixed(3)}°N,{locData.lon.toFixed(3)}°E — {locData.cropType} stress {locData.stressPct}%. NDVI:{locData.ndvi}. {locData.alertLevel === 'CRITICAL' ? 'Irrigate NOW.' : locData.alertLevel === 'MONITOR' ? 'Irrigate within 48h.' : 'Monitor in 5d.'}
                     </div>
+                    {/* OpenAI Solution */}
+                    <AIInsightPanel
+                        solution={aiSolution} loading={aiLoading} error={aiError} model={aiModel}
+                        accentColor="#ffd60a"
+                        label="🤖 Get OpenAI Global Solution"
+                        onFetch={() => fetchInsight('global', {
+                            lat: locData.lat.toFixed(4),
+                            lon: locData.lon.toFixed(4),
+                            stressPct: locData.stressPct,
+                            alertLevel: locData.alertLevel,
+                            ndvi: locData.ndvi,
+                            ndre: locData.ndre,
+                            msi: locData.msi,
+                            soilMoisture: locData.soilMoist,
+                            crop: locData.cropType,
+                            season: locData.growthStage,
+                            weatherFlags: `temp ${locData.temp}°C, humidity ${locData.humidity}%, rain ${locData.rainfall}mm/mo`,
+                        })}
+                        onClear={clearAI}
+                    />
                 </div>
+                )}
+
+                {/* ── Recent Analyses ── */}
+                {recentPins.length > 1 && (
+                <div className="card" style={{ marginBottom: '4px' }}>
+                    <div className="card-header"><span className="card-title">📍 Recent Analyses</span><span style={{ fontSize: '0.65rem', color: 'var(--color-text-muted)' }}>Click to re-load</span></div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {recentPins.map((p, i) => {
+                            const rc = ALERT_CFG[p.alertLevel];
+                            return (
+                                <div key={i} className="ops-history-item" onClick={() => handleLocationSelect(p.lat, p.lon)}
+                                    style={{ border: `1px solid ${rc.color}30` }}>
+                                    <span style={{ fontSize: '0.9rem' }}>{rc.icon}</span>
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ color: 'var(--color-text-primary)', fontWeight: 600 }}>{p.lat.toFixed(3)}°N, {p.lon.toFixed(3)}°E</div>
+                                        <div style={{ color: 'var(--color-text-muted)', fontSize: '0.62rem' }}>{p.cropType} · {p.stressPct}% stress</div>
+                                    </div>
+                                    <span className="ops-metric-pill" style={{ background: `${rc.color}15`, border: `1px solid ${rc.color}35`, color: rc.color }}>{p.alertLevel}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+                )}
 
             </>)}
         </section>

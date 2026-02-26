@@ -1,4 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
+import useAIInsight from '../hooks/useAIInsight';
+import AIInsightPanel from '../components/AIInsightPanel';
 
 /* ─── Crop water database ────────────────────────────────────────────────── */
 const CROP_DB = {
@@ -67,6 +69,21 @@ function analyzeWaterStress(imageData, W, H) {
 }
 
 /* ─── Build moisture heatmap overlay ───────────────────────────────────── */
+/* ─── Vegetation / crop image guard ────────────────────────────────────── */
+function isCropImage(imageData, W, H) {
+    const d = imageData.data, N = W * H;
+    let veg = 0;
+    for (let i = 0; i < N; i++) {
+        const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+        const isGreen       = g > r && g > b && g > 40 && (g - Math.max(r, b)) > 15;
+        const isYellowGreen = g > 90 && r > 60 && b < g && (g + r) > b * 3 && g > b * 1.4;
+        const isCropYellow  = r > 120 && g > 90 && b < 90 && r > b * 1.6 && g > b * 1.2;
+        const isBrown       = r > 80 && g > 40 && b < g && r > b && (r - b) > 25 && r < 200 && g < 160;
+        if (isGreen || isYellowGreen || isCropYellow || isBrown) veg++;
+    }
+    return (veg / N) >= 0.08;
+}
+
 function buildHeatmap(imageData, W, H) {
     const d = imageData.data, N = W * H;
     const heat = new Uint8ClampedArray(N * 4);
@@ -180,7 +197,9 @@ export default function WaterLevel() {
     const [heatmapUrl, setHeatmapUrl] = useState(null);
     const [activeView, setActiveView] = useState('original');
     const [error, setError] = useState(null);
+    const [nonCropAlert, setNonCropAlert] = useState(false);
     const fileRef = useRef();
+    const { solution: aiSolution, loading: aiLoading, error: aiError, model: aiModel, fetchInsight, clear: clearAI } = useAIInsight();
 
     const onFilePick = useCallback((e) => {
         const f = e.dataTransfer?.files?.[0] || e.target?.files?.[0];
@@ -224,6 +243,11 @@ export default function WaterLevel() {
                 });
                 if (!ok) throw new Error('Could not decode image. Try JPG or PNG.');
             }
+            if (!isCropImage(imageData, W, H)) {
+                setNonCropAlert(true);
+                setLoading(false);
+                return;
+            }
             const analysis = analyzeWaterStress(imageData, W, H);
             const hmUrl = buildHeatmap(imageData, W, H);
             setResult(analysis); setHeatmapUrl(hmUrl); setActiveView('heatmap');
@@ -242,6 +266,37 @@ export default function WaterLevel() {
 
     return (
         <section className="page-section" id="water-level-page">
+            {/* Non-crop image alert modal */}
+            {nonCropAlert && (
+                <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center',
+                    background:'rgba(0,0,0,0.72)', backdropFilter:'blur(6px)' }}
+                    onClick={() => setNonCropAlert(false)}>
+                    <div style={{ background:'#1a1a2e', border:'2px solid #ff4444', borderRadius:'18px', padding:'36px 40px',
+                        maxWidth:'440px', width:'90%', textAlign:'center', boxShadow:'0 0 60px rgba(255,68,68,0.35)' }}
+                        onClick={e => e.stopPropagation()}>
+                        <div style={{ fontSize:'3.5rem', marginBottom:'12px' }}>🚫🌿</div>
+                        <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#ff4444', marginBottom:'10px' }}>
+                            Image Not Related to Crops
+                        </div>
+                        <div style={{ fontSize:'0.88rem', color:'#ccc', lineHeight:1.7, marginBottom:'24px' }}>
+                            The uploaded image does not appear to be a <strong style={{color:'#fff'}}>plant, crop, or agricultural field</strong>.
+                            Please upload a relevant crop or vegetation image for accurate water stress analysis.
+                        </div>
+                        <div style={{ display:'flex', gap:'10px', justifyContent:'center' }}>
+                            <button onClick={() => { setNonCropAlert(false); setFile(null); setPreview(null); }}
+                                style={{ padding:'10px 24px', borderRadius:'8px', border:'none', background:'#ff4444',
+                                    color:'#fff', fontWeight:600, cursor:'pointer', fontSize:'0.88rem' }}>
+                                🔄 Upload Another Image
+                            </button>
+                            <button onClick={() => setNonCropAlert(false)}
+                                style={{ padding:'10px 24px', borderRadius:'8px', border:'1px solid #555',
+                                    background:'transparent', color:'#aaa', cursor:'pointer', fontSize:'0.88rem' }}>
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* Header */}
             <div className="section-header">
                 <div className="section-title-group">
@@ -448,7 +503,7 @@ export default function WaterLevel() {
 
                         {/* AI Suggestion panel */}
                         <div className="card" style={{ background: cfg.bg, border: `1px solid ${cfg.border}` }}>
-                            <div className="card-header"><span className="card-title">🤖 AI Water Advisory</span><span style={{ fontSize: '0.65rem', color: cfg.color }}>{cfg.icon} {result.level}</span></div>
+                            <div className="card-header"><span className="card-title">🤖 AI Water Solution</span><span style={{ fontSize: '0.65rem', color: cfg.color }}>{cfg.icon} {result.level}</span></div>
                             <div style={{ fontSize: '0.84rem', color: 'var(--color-text-secondary)', lineHeight: 1.75, marginBottom: '16px' }}>
                                 {result.level === 'OPTIMAL' && `✅ ${cropName} shows excellent hydration — water level at ${waterLevel}%. Soil moisture estimated at ${result.soilMoisture}%. Continue current irrigation schedule of ${stageWater}mm/day. Healthy leaf area is strong at ${result.healthyRatio.toFixed(0)}%. No action required.`}
                                 {result.level === 'ADEQUATE' && `🌱 ${cropName} is adequately hydrated with minor stress signals (${result.yellowRatio}% mild yellowing detected). Soil moisture: ${result.soilMoisture}%. Maintain irrigation at ${stageWater}mm/day. Monitor every 48h. Slight deficit — top up if rainfall below 5mm this week.`}
@@ -475,6 +530,20 @@ export default function WaterLevel() {
                                 <div style={{ fontSize: '0.58rem', color: 'var(--color-text-muted)', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>📱 SMS Alert Template</div>
                                 [SkyFarm] 💧 {result.level}: {cropName} @ {stage} — Water stress {result.stressScore}%, soil moisture {result.soilMoisture}%. Required: {stageWater}mm/day ({totalWater}mm for {area}ha). {result.level === 'OPTIMAL' ? 'No action needed.' : `Apply irrigation ${result.level === 'SEVERE' || result.level === 'CRITICAL' ? 'IMMEDIATELY' : 'within 24h'}.`}
                             </div>
+                            {/* OpenAI Solution */}
+                            <AIInsightPanel
+                                solution={aiSolution} loading={aiLoading} error={aiError} model={aiModel}
+                                accentColor="#00e5ff"
+                                label="🤖 Get OpenAI Water Solution"
+                                onFetch={() => fetchInsight('water', {
+                                    crop: cropName, stressScore: result.stressScore, level: result.level,
+                                    soilMoisture: result.soilMoisture, yellowRatio: result.yellowRatio,
+                                    wiltRatio: result.wiltRatio, brownRatio: result.brownRatio,
+                                    healthyRatio: result.healthyRatio, stage,
+                                    rainfall: null, nextIrrigation: null,
+                                })}
+                                onClear={clearAI}
+                            />
                         </div>
                     </>)}
 

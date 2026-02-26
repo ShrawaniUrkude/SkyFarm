@@ -7,21 +7,20 @@ const EMERGENCY_ALERTS = ALERTS.filter(a => a.destructionTime);
 
 export default function Navbar({ activePage, setActivePage }) {
     const navItems = [
-        { id: 'home', label: 'Home', icon: '🏠' },
-        { id: 'stressview', label: 'Stress-Vision', icon: '🔬' },
-        { id: 'analyze', label: 'Analyze Field', icon: '🛰️' },
-        { id: 'nutrients', label: 'Nutrients', icon: '🌿' },
-        { id: 'water', label: 'Water Level', icon: '💧' },
-        { id: 'globalops', label: 'Global Ops', icon: '🌍' },
-        { id: 'pipeline', label: 'Pipeline', icon: '⚡' },
-        { id: 'alerts', label: 'Alerts', icon: '🚨' },
+        { id: 'home',      label: 'Home',          icon: '🏠' },
+        { id: 'analyze',   label: 'Analyze Field',  icon: '🛰️' },
+        { id: 'nutrients', label: 'Nutrients',       icon: '🌿' },
+        { id: 'water',     label: 'Water Level',     icon: '💧' },
+        { id: 'globalops', label: 'Global Ops',      icon: '🌍' },
+        { id: 'pipeline',  label: 'Pipeline',        icon: '⚡' },
+        { id: 'alerts',    label: 'Alerts',          icon: '🚨' },
     ];
 
     const criticalCount = ALERTS.filter(a => a.severity === 'critical').length;
 
     return (
         <div style={{ position: 'sticky', top: 0, zIndex: 1000 }}>
-            {/* ── Main Nav ── */}
+            {/* ── Main Nav (exact structure from reference) ── */}
             <nav className="navbar" role="banner" style={{ position: 'relative', zIndex: 2 }}>
                 <button className="navbar-brand" onClick={() => setActivePage('home')} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <OrbitalLogo />
@@ -43,6 +42,7 @@ export default function Navbar({ activePage, setActivePage }) {
                                 id={`nav-${item.id}`}
                                 style={{ position: 'relative' }}
                             >
+                                {/* Critical badge on Alerts */}
                                 {item.id === 'alerts' && criticalCount > 0 && (
                                     <span style={{
                                         position: 'absolute',
@@ -62,7 +62,7 @@ export default function Navbar({ activePage, setActivePage }) {
                                         fontFamily: 'var(--font-mono)',
                                     }}>{criticalCount}</span>
                                 )}
-                                {item.label}
+                                {item.icon} {item.label}
                             </a>
                         </li>
                     ))}

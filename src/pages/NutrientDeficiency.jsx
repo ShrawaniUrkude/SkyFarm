@@ -1,4 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import useAIInsight from '../hooks/useAIInsight';
+import AIInsightPanel from '../components/AIInsightPanel';
 
 /* ─── Static reference data ──────────────────────────────────────────────── */
 const NUTRIENTS = [
@@ -20,10 +22,10 @@ const STATUS_CFG = {
 const URGENCY_STYLE = {
     critical: { color: '#ff3864', border: 'rgba(255,56,100,0.3)', bg: 'rgba(255,56,100,0.08)', tag: 'URGENT NOW' },
     warning: { color: '#ffd60a', border: 'rgba(255,214,10,0.25)', bg: 'rgba(255,214,10,0.08)', tag: '48h ACTION' },
-    info: { color: '#00e5ff', border: 'rgba(0,229,255,0.2)', bg: 'rgba(0,229,255,0.06)', tag: 'ADVISORY' },
+    info: { color: '#00e5ff', border: 'rgba(0,229,255,0.2)', bg: 'rgba(0,229,255,0.06)', tag: 'SOLUTION' },
 };
 
-const ADVICE_DB = {
+const SOLUTION_DB = {
     N: [
         { type: 'Immediate', urgency: 'critical', action: 'Apply 30–40 kg/ha urea (46-0-0) via fertigation or broadcast within 24h.' },
         { type: 'Foliar', urgency: 'warning', action: '2% urea solution spray at dawn. Repeat in 7 days.' },
@@ -53,7 +55,20 @@ const ADVICE_DB = {
         { type: 'Drip', urgency: 'info', action: 'FeSO₄ 10g/L via slow drip injection — avoids foliar scorching.' },
     ],
 };
-
+/* ─── Vegetation / crop image guard ────────────────────────────────────── */
+function isCropImage(imageData, W, H) {
+    const d = imageData.data, N = W * H;
+    let veg = 0;
+    for (let i = 0; i < N; i++) {
+        const r = d[i*4], g = d[i*4+1], b = d[i*4+2];
+        const isGreen       = g > r && g > b && g > 40 && (g - Math.max(r, b)) > 15;
+        const isYellowGreen = g > 90 && r > 60 && b < g && (g + r) > b * 3 && g > b * 1.4;
+        const isCropYellow  = r > 120 && g > 90 && b < 90 && r > b * 1.6 && g > b * 1.2;
+        const isBrown       = r > 80 && g > 40 && b < g && r > b && (r - b) > 25 && r < 200 && g < 160;
+        if (isGreen || isYellowGreen || isCropYellow || isBrown) veg++;
+    }
+    return (veg / N) >= 0.08;
+}
 /* ─── Client-side nutrient analysis from image pixels ───────────────────── */
 function analyzeNutrients(imageData, W, H) {
     const d = imageData.data;
@@ -213,7 +228,9 @@ export default function NutrientDeficiency() {
     const [activeNut, setActiveNut] = useState('N');
     const [activeTab, setActiveTab] = useState('original'); // original | heatmap
     const [error, setError] = useState(null);
+    const [nonCropAlert, setNonCropAlert] = useState(false);
     const fileRef = useRef();
+    const { solution: aiSolution, loading: aiLoading, error: aiError, model: aiModel, fetchInsight, clear: clearAI } = useAIInsight();
 
     const onFilePick = useCallback((e) => {
         const f = e.dataTransfer?.files?.[0] || e.target?.files?.[0];
@@ -266,6 +283,12 @@ export default function NutrientDeficiency() {
                 if (!loaded) throw new Error('Could not decode image. Try a JPG or PNG.');
             }
 
+            if (!isCropImage(imageData, W, H)) {
+                setNonCropAlert(true);
+                setLoading(false);
+                return;
+            }
+
             const analysis = analyzeNutrients(imageData, W, H);
             setResult({ ...analysis, imageData, W, H });
             setActiveNut('N');
@@ -291,13 +314,51 @@ export default function NutrientDeficiency() {
     return (
         <section className="page-section" id="nutrient-page">
 
+            {/* Non-crop image alert modal */}
+            {nonCropAlert && (
+                <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'center', justifyContent:'center',
+                    background:'rgba(0,0,0,0.72)', backdropFilter:'blur(6px)' }}
+                    onClick={() => setNonCropAlert(false)}>
+                    <div style={{ background:'#1a1a2e', border:'2px solid #ff3864', borderRadius:'18px', padding:'36px 40px',
+                        maxWidth:'440px', width:'90%', textAlign:'center', boxShadow:'0 0 60px rgba(255,56,100,0.35)' }}
+                        onClick={e => e.stopPropagation()}>
+                        <div style={{ fontSize:'3.5rem', marginBottom:'12px' }}>🚫🌿</div>
+                        <div style={{ fontSize:'1.2rem', fontWeight:700, color:'#ff3864', marginBottom:'10px' }}>
+                            Image Not Related to Crops
+                        </div>
+                        <div style={{ fontSize:'0.88rem', color:'#ccc', lineHeight:1.7, marginBottom:'24px' }}>
+                            The uploaded image does not appear to contain a <strong style={{color:'#fff'}}>plant, crop, or vegetation</strong>.
+                            Please upload a crop image for accurate nutrient deficiency detection.
+                        </div>
+                        <div style={{ fontSize:'0.78rem', color:'#888', marginBottom:'20px',
+                            padding:'10px 14px', background:'rgba(255,56,100,0.08)', borderRadius:'8px',
+                            border:'1px solid rgba(255,56,100,0.2)' }}>
+                            💡 <strong style={{color:'#ccc'}}>Tip:</strong> Use close-up photos of crop leaves or aerial field images.
+                            Acceptable formats: JPG, PNG, WebP, TIFF.
+                        </div>
+                        <div style={{ display:'flex', gap:'10px', justifyContent:'center' }}>
+                            <button onClick={() => { setNonCropAlert(false); setFile(null); setPreview(null); }}
+                                style={{ padding:'10px 24px', borderRadius:'8px', border:'none', background:'#ff3864',
+                                    color:'#fff', fontWeight:600, cursor:'pointer', fontSize:'0.88rem' }}>
+                                🔄 Upload Another Image
+                            </button>
+                            <button onClick={() => setNonCropAlert(false)}
+                                style={{ padding:'10px 24px', borderRadius:'8px', border:'1px solid #555',
+                                    background:'transparent', color:'#aaa', cursor:'pointer', fontSize:'0.88rem' }}>
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <div className="section-header">
                 <div className="section-title-group">
                     <div className="section-eyebrow">🔬 Pre-Visual Spectral Detection</div>
                     <h1 className="section-title">Nutrient Deficiency Intelligence</h1>
                     <p className="section-desc">
-                        Upload a crop image — our AI reads pixel colour signatures to detect <strong>N, P, K, Mg and Fe deficiencies</strong> before they are visible to the naked eye. Get targeted remediation advice instantly.
+                        Upload a crop image — our AI reads pixel colour signatures to detect <strong>N, P, K, Mg and Fe deficiencies</strong> before they are visible to the naked eye. Get targeted remediation solutions instantly.
                     </p>
                 </div>
                 {result && (
@@ -572,7 +633,7 @@ export default function NutrientDeficiency() {
                                 <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: cfg.color }}>Act within {dtv} days</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                                {(ADVICE_DB[activeNut] || []).map((a, i) => {
+                                {(SOLUTION_DB[activeNut] || []).map((a, i) => {
                                     const u = URGENCY_STYLE[a.urgency];
                                     return (
                                         <div key={i} style={{ display: 'flex', gap: '12px', padding: '13px 15px', borderRadius: '12px', background: u.bg, border: `1px solid ${u.border}`, alignItems: 'flex-start' }}>
@@ -612,6 +673,25 @@ export default function NutrientDeficiency() {
                                     </div>
                                 ))}
                             </div>
+                            {/* OpenAI Solution */}
+                            <AIInsightPanel
+                                solution={aiSolution} loading={aiLoading} error={aiError} model={aiModel}
+                                accentColor="#00ff88"
+                                label="🤖 Get OpenAI Nutrient Solution"
+                                onFetch={() => fetchInsight('nutrient', {
+                                    crop: 'General',
+                                    overallStatus: result.overallStatus,
+                                    deficiencies: Object.entries(result.statusOf)
+                                        .filter(([,v]) => v !== 'healthy')
+                                        .map(([k,v]) => `${k}: ${v}`),
+                                    yellowRatio: result.yellowRatio,
+                                    purpleRatio: result.purpleRatio,
+                                    brownRatio: result.brownRatio,
+                                    paleRatio: result.paleGreenRatio,
+                                    ndvi: null,
+                                })}
+                                onClear={clearAI}
+                            />
                         </div>
 
                     </div>

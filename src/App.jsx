@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from './components/Navbar';
+import SideNav from './components/SideNav';
 import Dashboard from './pages/Dashboard';
 import Home from './pages/Home';
 import StressView from './pages/StressView';
