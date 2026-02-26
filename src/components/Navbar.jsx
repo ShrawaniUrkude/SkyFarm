@@ -9,6 +9,7 @@ export default function Navbar({ activePage, setActivePage }) {
     const navItems = [
         { id: 'home',      label: 'Home',          icon: '🏠' },
         { id: 'analyze',   label: 'Analyze Field',  icon: '🛰️' },
+        { id: 'farmmap',   label: 'Farm Map',        icon: '🗺️' },
         { id: 'nutrients', label: 'Nutrients',       icon: '🌿' },
         { id: 'water',     label: 'Water Level',     icon: '💧' },
         { id: 'globalops', label: 'Global Ops',      icon: '🌍' },

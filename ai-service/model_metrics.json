@@ -1,0 +1,10 @@
+{
+  "model": "XGBClassifier",
+  "accuracy": 99.99,
+  "auc": 1.0,
+  "n_scenes": 20,
+  "scene_size": [
+    256,
+    256
+  ]
+}

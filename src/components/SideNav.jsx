@@ -13,10 +13,11 @@ export default function SideNav({ activePage, setActivePage }) {
         {
             label: 'Analysis',
             items: [
-                { id: 'analyze',  icon: '🛰️', label: 'Analyze Field',  badge: null },
-                { id: 'nutrients',icon: '🌿', label: 'Nutrients',       badge: null },
-                { id: 'water',    icon: '💧', label: 'Water Level',     badge: null },
-                { id: 'spectral', icon: '🔬', label: 'Spectral View',   badge: 'NEW' },
+                { id: 'analyze',   icon: '🛰️', label: 'Analyze Field',  badge: null },
+                { id: 'farmmap',   icon: '🗺️', label: 'Farm Map',        badge: 'NEW' },
+                { id: 'nutrients', icon: '🌿', label: 'Nutrients',       badge: null },
+                { id: 'water',     icon: '💧', label: 'Water Level',     badge: null },
+                { id: 'spectral',  icon: '🔭', label: 'Spectral View',   badge: null },
                 { id: 'history',  icon: '📈', label: 'Time Series',     badge: null },
                 { id: 'compare',  icon: '🗺️', label: 'Field Compare',   badge: null },
             ]

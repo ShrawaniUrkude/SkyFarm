@@ -1,291 +1,231 @@
 """
-train_model.py — SkyFarm Orbital Agronomy
-Trains both a RandomForestClassifier and an XGBoostClassifier on synthetic
-spectral data, compares accuracy, and saves the best-performing model.
+train_model.py
+--------------
+Standalone training script: generates synthetic multispectral scenes,
+extracts spectral features, trains an XGBoost classifier (with RandomForest
+fallback), and saves artefacts for the inference service.
 
-Saves:
-  models/model.joblib        — best model (RF or XGB)
-  models/scaler.joblib       — StandardScaler
-  models/rf_model.joblib     — RandomForest (always saved)
-  models/xgb_model.joblib    — XGBoost     (always saved)
-  models/model_meta.json     — model type, accuracy, feature importances
+Saved artefacts
+---------------
+model.joblib        -- trained classifier
+demo_field.tif      -- first synthetic scene as a 6-band GeoTIFF (EPSG:4326)
+model_metrics.json  -- accuracy + ROC-AUC reported on the held-out test set
 
-Feature vector (per pixel):
-  [NDVI, NDRE, MSI, GNDVI, CHL, z_score, NIR, Red, Green, RedEdge, SWIR, EVI]
-
-Classes:
-  0 = healthy
-  1 = stressed
+Synthetic data parameters
+-------------------------
+- 20 scenes of 256x256 pixels
+- 4 crop types: wheat, rice, cotton, sugarcane
+- 3 stress types: drought, nutrient, pest
+- Spectral reflectance profiles based on realistic Sentinel-2 values
+- Perlin-like spatial anomalies via scipy.ndimage.zoom
 """
 
 import json
 import os
 
+import joblib
 import numpy as np
+import rasterio
+from rasterio.transform import from_bounds
+from scipy.ndimage import zoom
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, cross_val_score, train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, roc_auc_score
+from sklearn.model_selection import train_test_split
 
 try:
     from xgboost import XGBClassifier
-
     HAS_XGB = True
 except ImportError:
     HAS_XGB = False
-    print("⚠️  xgboost not installed — pip install xgboost   (skipping XGB)")
+    print("xgboost not available – falling back to RandomForest")
 
-import joblib
+from spectral import build_feature_stack
 
-# ─── Reproducibility ──────────────────────────────────────────────────────────
 np.random.seed(42)
 
-N_SAMPLES = 12_000  # synthetic per-pixel samples
-FEATURE_NAMES = [
-    "NDVI",
-    "NDRE",
-    "MSI",
-    "GNDVI",
-    "CHL",
-    "z_score",
-    "NIR",
-    "Red",
-    "Green",
-    "RedEdge",
-    "SWIR",
-    "EVI",
-]
+# ---------------------------------------------------------------------------
+#  Crop spectral profiles  (mu, sigma) per band for each class
+#  Band order: [blue, green, red, red_edge, nir, swir]
+# ---------------------------------------------------------------------------
+CROP_PROFILES = {
+    "wheat":     {"mu": [0.05, 0.10, 0.07, 0.25, 0.42, 0.22], "sigma": [0.008, 0.010, 0.008, 0.020, 0.030, 0.018]},
+    "rice":      {"mu": [0.04, 0.09, 0.06, 0.22, 0.45, 0.18], "sigma": [0.007, 0.009, 0.007, 0.018, 0.028, 0.015]},
+    "cotton":    {"mu": [0.06, 0.11, 0.08, 0.28, 0.50, 0.25], "sigma": [0.009, 0.011, 0.009, 0.022, 0.035, 0.020]},
+    "sugarcane": {"mu": [0.05, 0.12, 0.07, 0.24, 0.48, 0.20], "sigma": [0.008, 0.010, 0.008, 0.020, 0.032, 0.017]},
+}
+
+# Stress signatures: fractional shift applied to pixels under stress
+STRESS_SHIFTS = {
+    "drought":  [+0.02, -0.03, +0.05, -0.06, -0.12, +0.10],
+    "nutrient": [+0.01, -0.02, +0.03, -0.08, -0.10, +0.06],
+    "pest":     [+0.03, -0.04, +0.06, -0.05, -0.09, +0.08],
+}
+
+N_SCENES  = 20
+SCENE_H   = 256
+SCENE_W   = 256
+STRESS_FRACTION = 0.35   # ~35% of each scene is stressed
 
 
-# ─── Generate synthetic spectral features ─────────────────────────────────────
-def generate_synthetic_dataset(n_samples: int):
+def perlin_noise(h: int, w: int, scale: float = 0.08) -> np.ndarray:
+    """Generate smooth spatial noise via bicubic zoom of white noise."""
+    low_h = max(2, int(h * scale))
+    low_w = max(2, int(w * scale))
+    raw   = np.random.rand(low_h, low_w).astype(np.float32)
+    zoom_h = h / low_h
+    zoom_w = w / low_w
+    smooth = zoom(raw, (zoom_h, zoom_w), order=3)
+    # ensure exact shape
+    smooth = smooth[:h, :w]
+    if smooth.shape != (h, w):
+        smooth = np.pad(smooth, ((0, h - smooth.shape[0]), (0, w - smooth.shape[1])))
+    mn, mx = smooth.min(), smooth.max()
+    return (smooth - mn) / (mx - mn + 1e-8)
+
+
+def generate_scene(crop: str, stress_type: str, h: int = SCENE_H, w: int = SCENE_W):
     """
-    Simulate realistic Sentinel-2 band reflectance values for healthy,
-    moderately-stressed, and severely-stressed pixels, then derive
-    an extended set of spectral indices.
+    Return a (6, H, W) float32 array and a (H, W) binary label mask.
+    Label 0 = healthy, 1 = stressed.
     """
-    n_healthy = n_samples // 3
-    n_moderate = n_samples // 3
-    n_severe = n_samples - n_healthy - n_moderate
+    profile = CROP_PROFILES[crop]
+    mu      = np.array(profile["mu"],    dtype=np.float32)
+    sigma   = np.array(profile["sigma"], dtype=np.float32)
+    shifts  = np.array(STRESS_SHIFTS[stress_type], dtype=np.float32)
 
-    def band(mu_h, mu_m, mu_s, sd, n_h, n_m, n_s):
-        return np.concatenate(
-            [
-                np.random.normal(mu_h, sd, n_h),
-                np.random.normal(mu_m, sd * 1.1, n_m),
-                np.random.normal(mu_s, sd * 1.2, n_s),
-            ]
-        )
+    # Base healthy reflectance
+    bands = np.random.normal(mu[:, None, None], sigma[:, None, None],
+                             size=(6, h, w)).astype(np.float32)
 
-    # ── Raw bands (Sentinel-2 style reflectance) ──────────────────────────
-    NIR = band(0.46, 0.35, 0.24, 0.06, n_healthy, n_moderate, n_severe)
-    Red = band(0.07, 0.13, 0.20, 0.02, n_healthy, n_moderate, n_severe)
-    Green = band(0.12, 0.10, 0.08, 0.02, n_healthy, n_moderate, n_severe)
-    RedEdge = band(0.31, 0.22, 0.15, 0.04, n_healthy, n_moderate, n_severe)
-    SWIR = band(0.19, 0.30, 0.42, 0.05, n_healthy, n_moderate, n_severe)
+    # Stress mask via Perlin-like noise
+    noise    = perlin_noise(h, w)
+    threshold = np.quantile(noise, 1.0 - STRESS_FRACTION)
+    stress_mask = (noise >= threshold).astype(np.float32)
 
-    # Clip to [0.01, 1]
-    NIR = np.clip(NIR, 0.01, 1.0)
-    Red = np.clip(Red, 0.01, 1.0)
-    Green = np.clip(Green, 0.01, 1.0)
-    RedEdge = np.clip(RedEdge, 0.01, 1.0)
-    SWIR = np.clip(SWIR, 0.01, 1.0)
+    # Apply stress spectral shift
+    for b in range(6):
+        bands[b] += stress_mask * shifts[b]
 
-    # ── Spectral indices ──────────────────────────────────────────────────
-    eps = 1e-8
-    NDVI = (NIR - Red) / (NIR + Red + eps)
-    NDRE = (NIR - RedEdge) / (NIR + RedEdge + eps)
-    MSI = SWIR / (NIR + eps)
-    GNDVI = (NIR - Green) / (NIR + Green + eps)  # Green NDVI
-    CHL = (NIR / RedEdge) - 1.0  # Red-Edge Chlorophyll
-    EVI = 2.5 * (NIR - Red) / (NIR + 6 * Red - 7.5 * 0.02 + 1 + eps)
-
-    # Z-score anomaly (healthy reference)
-    ndvi_mean = np.mean(NDVI[:n_healthy])
-    ndvi_std = np.std(NDVI[:n_healthy]) + eps
-    z_score = (NDVI - ndvi_mean) / ndvi_std
-
-    # Add realistic sensor noise
-    noise = lambda a: a + np.random.normal(0, 0.005, a.shape)
-    NDVI, NDRE, MSI, GNDVI = noise(NDVI), noise(NDRE), noise(MSI), noise(GNDVI)
-
-    X = np.column_stack(
-        [NDVI, NDRE, MSI, GNDVI, CHL, z_score, NIR, Red, Green, RedEdge, SWIR, EVI]
-    )
-    # Binary labels: 0 = healthy, 1 = stressed (moderate+severe)
-    y = np.array([0] * n_healthy + [1] * (n_moderate + n_severe))
-
-    return X, y
+    bands = np.clip(bands, 0.01, 1.0)
+    labels = stress_mask.astype(np.int32)
+    return bands, labels
 
 
-# ─── Dataset ──────────────────────────────────────────────────────────────────
-print("🌱  Generating synthetic Sentinel-2 spectral dataset…")
-X, y = generate_synthetic_dataset(N_SAMPLES)
-print(
-    f"     Samples: {len(X)} | Features: {X.shape[1]} | "
-    f"Healthy: {(y==0).sum()} | Stressed: {(y==1).sum()}"
-)
+# ---------------------------------------------------------------------------
+#  Generate all scenes
+# ---------------------------------------------------------------------------
+print(f"Generating {N_SCENES} synthetic scenes ({SCENE_H}x{SCENE_W})...")
+
+crops        = list(CROP_PROFILES.keys())
+stress_types = list(STRESS_SHIFTS.keys())
+all_features, all_labels = [], []
+first_scene_bands = None
+
+for i in range(N_SCENES):
+    crop   = crops[i % len(crops)]
+    stress = stress_types[i % len(stress_types)]
+    scene_bands, label_mask = generate_scene(crop, stress)
+
+    if first_scene_bands is None:
+        first_scene_bands = scene_bands
+
+    band_dict = {
+        "blue":     scene_bands[0],
+        "green":    scene_bands[1],
+        "red":      scene_bands[2],
+        "red_edge": scene_bands[3],
+        "nir":      scene_bands[4],
+        "swir":     scene_bands[5],
+    }
+
+    features, shape, _ = build_feature_stack(band_dict)
+    all_features.append(features)
+    all_labels.append(label_mask.ravel())
+    print(f"  Scene {i+1:02d}/{N_SCENES}  crop={crop:<10s}  stress={stress}")
+
+X = np.vstack(all_features).astype(np.float32)
+y = np.concatenate(all_labels).astype(np.int32)
+print(f"Dataset: {X.shape[0]:,} pixels  |  stressed: {y.sum():,}  |  healthy: {(y==0).sum():,}")
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-scaler = StandardScaler()
-X_train = scaler.fit_transform(X_train)
-X_test = scaler.transform(X_test)
-
-print(f"\n📊  Training set: {X_train.shape[0]:,} | Test set: {X_test.shape[0]:,}")
-
-# ─── RandomForest ─────────────────────────────────────────────────────────────
-print("\n🌲  Training RandomForestClassifier…")
-rf = RandomForestClassifier(
-    n_estimators=300,
-    max_depth=14,
-    min_samples_split=4,
-    min_samples_leaf=2,
-    max_features="sqrt",
-    class_weight="balanced",
-    random_state=42,
-    n_jobs=-1,
-)
-rf.fit(X_train, y_train)
-rf_pred = rf.predict(X_test)
-rf_acc = accuracy_score(y_test, rf_pred)
-rf_auc = roc_auc_score(y_test, rf.predict_proba(X_test)[:, 1])
-print(f"   ✅ RF  Accuracy : {rf_acc * 100:.2f}%  |  ROC-AUC: {rf_auc:.4f}")
-
-# ─── XGBoost ──────────────────────────────────────────────────────────────────
-xgb_acc, xgb_auc = 0.0, 0.0
-xgb = None
+# ---------------------------------------------------------------------------
+#  Train
+# ---------------------------------------------------------------------------
 if HAS_XGB:
-    print("\n⚡  Training XGBoostClassifier…")
-    xgb = XGBClassifier(
-        n_estimators=400,
-        max_depth=7,
+    print("Training XGBClassifier (n_estimators=300)...")
+    clf = XGBClassifier(
+        n_estimators=300,
+        max_depth=6,
         learning_rate=0.05,
         subsample=0.8,
         colsample_bytree=0.8,
-        gamma=0.1,
-        reg_alpha=0.1,
-        reg_lambda=1.5,
-        scale_pos_weight=(y_train == 0).sum() / (y_train == 1).sum(),
         use_label_encoder=False,
         eval_metric="logloss",
         random_state=42,
         n_jobs=-1,
     )
-    xgb.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
-    xgb_pred = xgb.predict(X_test)
-    xgb_acc = accuracy_score(y_test, xgb_pred)
-    xgb_auc = roc_auc_score(y_test, xgb.predict_proba(X_test)[:, 1])
-    print(f"   ✅ XGB Accuracy : {xgb_acc * 100:.2f}%  |  ROC-AUC: {xgb_auc:.4f}")
-
-# ─── Cross-validation (5-fold on best model so far) ──────────────────────────
-best_base = xgb if (HAS_XGB and xgb_acc >= rf_acc) else rf
-best_name = "XGBoost" if (HAS_XGB and xgb_acc >= rf_acc) else "RandomForest"
-cv_scores = cross_val_score(
-    best_base,
-    np.vstack([X_train, X_test]),
-    np.concatenate([y_train, y_test]),
-    cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
-    scoring="accuracy",
-    n_jobs=-1,
-)
-print(
-    f"\n🔁  5-Fold CV ({best_name}): {cv_scores.mean()*100:.2f}% ± {cv_scores.std()*100:.2f}%"
-)
-
-# ─── Ensemble (VotingClassifier) ──────────────────────────────────────────────
-if HAS_XGB:
-    print("\n🤝  Training Ensemble (RF + XGBoost soft voting)…")
-    # VotingClassifier needs fresh (un-transformed) estimators, but we already
-    # have scaled data so we use pre-fitted ones via predict_proba manually.
-    rf_proba = rf.predict_proba(X_test)[:, 1]
-    xgb_proba = xgb.predict_proba(X_test)[:, 1]
-    ens_proba = (rf_proba + xgb_proba) / 2
-    ens_pred = (ens_proba >= 0.5).astype(int)
-    ens_acc = accuracy_score(y_test, ens_pred)
-    ens_auc = roc_auc_score(y_test, ens_proba)
-    print(f"   ✅ Ensemble Accuracy: {ens_acc * 100:.2f}%  |  ROC-AUC: {ens_auc:.4f}")
-
-# ─── Select best model ────────────────────────────────────────────────────────
-candidate_acc = {
-    "RandomForest": rf_acc,
-}
-if HAS_XGB:
-    candidate_acc["XGBoost"] = xgb_acc
-    candidate_acc["Ensemble"] = ens_acc  # ensemble uses RF+XGB, save best single
-
-best_model_name = max(candidate_acc, key=candidate_acc.get)
-best_acc = candidate_acc[best_model_name]
-
-if best_model_name == "XGBoost":
-    best_model = xgb
-elif best_model_name == "RandomForest":
-    best_model = rf
+    clf.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    model_name = "XGBClassifier"
 else:
-    # Ensemble ≈ XGBoost in accuracy; prefer XGBoost for single-model deployment
-    best_model = xgb
-    best_model_name = "XGBoost (Ensemble Best)"
-
-print(f"\n🏆  Best model: {best_model_name}  ({best_acc*100:.2f}%)")
-
-# ─── Full classification report ───────────────────────────────────────────────
-print("\nClassification Report (best model):")
-print(
-    classification_report(
-        y_test, best_model.predict(X_test), target_names=["Healthy", "Stressed"]
+    print("Training RandomForestClassifier (n_estimators=300)...")
+    clf = RandomForestClassifier(
+        n_estimators=300, max_depth=12, class_weight="balanced",
+        random_state=42, n_jobs=-1
     )
-)
+    clf.fit(X_train, y_train)
+    model_name = "RandomForestClassifier"
 
-# ─── Feature importances ──────────────────────────────────────────────────────
-importances = best_model.feature_importances_
-print("📈  Feature Importances:")
-sorted_feats = sorted(zip(FEATURE_NAMES, importances), key=lambda x: -x[1])
-for name, imp in sorted_feats:
-    bar = "█" * int(imp * 200)
-    print(f"  {name:12s} {imp:.4f}  {bar}")
+y_pred  = clf.predict(X_test)
+y_proba = clf.predict_proba(X_test)[:, 1]
+accuracy = float((y_pred == y_test).mean())
+auc      = float(roc_auc_score(y_test, y_proba))
 
-# ─── Save artefacts ───────────────────────────────────────────────────────────
-os.makedirs("models", exist_ok=True)
-joblib.dump(rf, "models/rf_model.joblib")
-joblib.dump(scaler, "models/scaler.joblib")
-joblib.dump(best_model, "models/model.joblib")
+print(f"\nModel : {model_name}")
+print(f"Accuracy : {accuracy * 100:.2f}%")
+print(f"ROC-AUC  : {auc:.4f}")
+print(classification_report(y_test, y_pred, target_names=["healthy", "stressed"]))
 
-meta = {
-    "best_model": best_model_name,
-    "best_accuracy": round(best_acc * 100, 2),
-    "rf_accuracy": round(rf_acc * 100, 2),
-    "rf_roc_auc": round(rf_auc, 4),
-    "feature_names": FEATURE_NAMES,
-    "feature_importances": {n: round(float(i), 4) for n, i in sorted_feats},
-    "cv_mean": round(float(cv_scores.mean()) * 100, 2),
-    "cv_std": round(float(cv_scores.std()) * 100, 2),
+# ---------------------------------------------------------------------------
+#  Save artefacts
+# ---------------------------------------------------------------------------
+_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 1) Model
+model_path = os.path.join(_dir, "model.joblib")
+joblib.dump(clf, model_path)
+print(f"Saved: {model_path}")
+
+# 2) demo_field.tif  (EPSG:4326, near Pune)
+dem_path = os.path.join(_dir, "demo_field.tif")
+west, south, east, north = 73.980, 18.490, 74.010, 18.520
+transform = from_bounds(west, south, east, north, SCENE_W, SCENE_H)
+
+with rasterio.open(
+    dem_path, "w",
+    driver="GTiff",
+    height=SCENE_H, width=SCENE_W,
+    count=6,
+    dtype="float32",
+    crs="EPSG:4326",
+    transform=transform,
+) as dst:
+    for b in range(6):
+        dst.write(first_scene_bands[b], b + 1)
+print(f"Saved: {dem_path}")
+
+# 3) model_metrics.json
+metrics_path = os.path.join(_dir, "model_metrics.json")
+metrics = {
+    "model":    model_name,
+    "accuracy": round(accuracy * 100, 2),
+    "auc":      round(auc, 4),
+    "n_scenes": N_SCENES,
+    "scene_size": [SCENE_H, SCENE_W],
 }
-if HAS_XGB:
-    joblib.dump(xgb, "models/xgb_model.joblib")
-    meta["xgb_accuracy"] = round(xgb_acc * 100, 2)
-    meta["xgb_roc_auc"] = round(xgb_auc, 4)
-    meta["ensemble_accuracy"] = round(ens_acc * 100, 2)
-    print("💾  Saved: models/xgb_model.joblib")
-
-with open("models/model_meta.json", "w") as f:
-    json.dump(meta, f, indent=2)
-
-print("💾  Saved: models/model.joblib  models/rf_model.joblib")
-print("💾  Saved: models/scaler.joblib  models/model_meta.json")
-
-# ─── Summary ──────────────────────────────────────────────────────────────────
-print("\n" + "─" * 56)
-print(f" Model          │ Accuracy │  ROC-AUC")
-print("─" * 56)
-print(f" RandomForest   │  {rf_acc*100:6.2f}%  │  {rf_auc:.4f}")
-if HAS_XGB:
-    print(f" XGBoost        │  {xgb_acc*100:6.2f}%  │  {xgb_auc:.4f}")
-    print(f" Ensemble       │  {ens_acc*100:6.2f}%  │  {ens_auc:.4f}")
-print("─" * 56)
-print(
-    f" 5-Fold CV ({best_name[:3]:}…) │  {cv_scores.mean()*100:.2f}% ± {cv_scores.std()*100:.2f}%"
-)
-print("─" * 56)
-print("\n🚀  SkyFarm AI (XGBoost + RF Ensemble) is ready for inference!")
+with open(metrics_path, "w") as f:
+    json.dump(metrics, f, indent=2)
+print(f"Saved: {metrics_path}")
+print("\nTraining complete.")

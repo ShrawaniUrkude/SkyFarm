@@ -10,6 +10,7 @@ import AnalyzeField from './pages/AnalyzeField';
 import NutrientDeficiency from './pages/NutrientDeficiency';
 import GlobalOpsCenter from './pages/GlobalOpsCenter';
 import WaterLevel from './pages/WaterLevel';
+import FarmMapping from './pages/FarmMapping';
 import { SpectralView, TimeSeries, Satellites, Reports, FieldCompare } from './pages/ExtraPages';
 
 /* ─── Star Field ─────────────────────────────────────────────────────────── */
@@ -57,6 +58,7 @@ export default function App() {
       case 'pipeline': return <Pipeline />;
       case 'alerts': return <AlertCenter />;
       case 'analyze': return <AnalyzeField />;
+      case 'farmmap':  return <FarmMapping />;
       case 'nutrients': return <NutrientDeficiency />;
       case 'globalops': return <GlobalOpsCenter />;
       case 'water': return <WaterLevel />;

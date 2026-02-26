@@ -65,7 +65,7 @@ const ALERT_CFG = {
 ─────────────────────────────────────────────────────────────────────────── */
 const TILE_SIZE = 256;
 
-function TileMap({ onLocationSelect, selectedPin }) {
+function TileMap({ onLocationSelect, selectedPin, onClearPin }) {
     const canvasRef = useRef(null);
     const tileCache = useRef({});
     const viewRef = useRef({ lat: 20.5937, lon: 78.9629, zoom: 5 }); // India default
@@ -233,7 +233,8 @@ function TileMap({ onLocationSelect, selectedPin }) {
     };
 
     const onMouseUp = (e) => {
-        if (!dragRef.current.moved) {
+        /* Only treat as a click if mouse button was actively pressed (dragging=true) and didn't move */
+        if (dragRef.current.dragging && !dragRef.current.moved) {
             // Click → select location
             const rect = canvasRef.current.getBoundingClientRect();
             const scaleX = W / rect.width, scaleY = H / rect.height;
@@ -243,6 +244,12 @@ function TileMap({ onLocationSelect, selectedPin }) {
             onLocationSelect(lat, lon);
         }
         dragRef.current.dragging = false; dragRef.current.moved = false;
+    };
+
+    /* Mouse leave — just cancel drag, never fire a spurious click */
+    const onMouseLeave = () => {
+        dragRef.current.dragging = false;
+        dragRef.current.moved = false;
     };
 
     const onWheel = (e) => {
@@ -282,7 +289,7 @@ function TileMap({ onLocationSelect, selectedPin }) {
         <div style={{ position: 'relative', borderRadius: '14px', overflow: 'hidden', border: '1px solid rgba(0,229,255,0.2)', cursor: 'crosshair', boxShadow: '0 0 40px rgba(0,229,255,0.08)' }}>
             <canvas ref={canvasRef} width={W} height={H}
                 style={{ width: '100%', height: 'auto', display: 'block', userSelect: 'none' }}
-                onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}
+                onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseLeave}
                 onWheel={onWheel}
                 onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
             />
@@ -316,8 +323,33 @@ function TileMap({ onLocationSelect, selectedPin }) {
 
             {/* Bottom-left hint */}
             <div style={{ position: 'absolute', bottom: 10, left: 12, fontSize: '0.64rem', fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.35)', background: 'rgba(0,0,0,0.6)', padding: '3px 8px', borderRadius: '4px' }}>
-                Click anywhere on map to select location · Drag to pan · Scroll to zoom · © OpenStreetMap
+                Click anywhere to pin a location · Drag to pan · Scroll to zoom · © OpenStreetMap
             </div>
+
+            {/* Pinned location badge + clear button */}
+            {selectedPin && (
+                <div style={{
+                    position: 'absolute', top: 12, right: 12,
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    background: 'rgba(0,0,0,0.82)', border: '1px solid rgba(0,229,255,0.45)',
+                    borderRadius: '10px', padding: '6px 12px',
+                    backdropFilter: 'blur(6px)',
+                }}>
+                    <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: '#00e5ff', fontWeight: 700 }}>
+                        📌 {selectedPin.lat.toFixed(4)}°N, {selectedPin.lon.toFixed(4)}°E
+                    </span>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onClearPin(); }}
+                        style={{
+                            background: 'rgba(255,56,100,0.15)', border: '1px solid rgba(255,56,100,0.4)',
+                            color: '#ff3864', borderRadius: '6px', padding: '2px 8px',
+                            cursor: 'pointer', fontSize: '0.68rem', fontFamily: 'var(--font-mono)', fontWeight: 700,
+                        }}
+                    >
+                        × Clear
+                    </button>
+                </div>
+            )}
         </div>
     );
 }
@@ -452,7 +484,7 @@ export default function GlobalOpsCenter() {
 
             {/* ── Map with scan overlay ── */}
             <div style={{ marginBottom: '20px', position: 'relative', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(0,229,255,0.2)', boxShadow: '0 0 32px rgba(0,229,255,0.07)' }}>
-                <TileMap onLocationSelect={handleLocationSelect} selectedPin={selectedPin} />
+                <TileMap onLocationSelect={handleLocationSelect} selectedPin={selectedPin} onClearPin={() => { setSelectedPin(null); setLocData(null); }} />
                 {/* Scan overlay */}
                 <div className="ops-scan-overlay">
                     <div className="ops-scan-line" />

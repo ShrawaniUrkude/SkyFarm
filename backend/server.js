@@ -9,6 +9,7 @@ const path = require("path");
 const analysisRoutes = require("./routes/analysis");
 const historyRoutes = require("./routes/history");
 const aiInsightRoutes = require("./routes/ai-insight");
+const farmsRoutes = require("./routes/farms");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -39,6 +40,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/analyze", analysisRoutes);
 app.use("/api/history", historyRoutes);
 app.use("/api/ai-insight", aiInsightRoutes);
+app.use("/api/farms", farmsRoutes);
 
 app.get("/health", (req, res) => {
   res.json({
