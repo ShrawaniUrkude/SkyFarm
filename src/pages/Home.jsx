@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useCountUp } from '../hooks/useCountUp';
+import ImageSlider from '../components/ImageSlider';
 /* ─── Animated satellite orbit canvas ───────────────────────────────────── */
 function OrbitCanvas() {
     const canvasRef = useRef(null);
@@ -234,6 +235,9 @@ export default function Home({ setActivePage }) {
 
     return (
         <div id="home-page" style={{ overflow: 'hidden' }}>
+
+            {/* ── IMAGE SLIDER ─────────────────────────────────────── */}
+            <ImageSlider />
 
             {/* ── HERO ─────────────────────────────────────────────── */}
             <section style={{ minHeight: 'calc(100vh - 64px)', display: 'flex', alignItems: 'center', position: 'relative', padding: '60px 48px' }}>

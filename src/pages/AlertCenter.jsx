@@ -45,6 +45,99 @@ export default function AlertCenter() {
                 </div>
             </div>
 
+            {/* ── EMERGENCY DESTRUCTION TIMELINE PANEL ───────────────── */}
+            {ALL_ALERTS.filter(a => a.destructionTime).length > 0 && (
+                <div style={{
+                    marginBottom: '28px',
+                    borderRadius: '16px',
+                    border: '1.5px solid rgba(255,56,100,0.45)',
+                    background: 'linear-gradient(135deg, rgba(255,56,100,0.07) 0%, rgba(10,5,15,0.9) 100%)',
+                    overflow: 'hidden',
+                }}>
+                    {/* Header */}
+                    <div style={{
+                        display: 'flex', alignItems: 'center', gap: '12px',
+                        padding: '14px 24px',
+                        background: 'rgba(255,56,100,0.1)',
+                        borderBottom: '1px solid rgba(255,56,100,0.25)',
+                    }}>
+                        <span style={{ fontSize: '1.2rem', animation: 'ping 1.2s ease infinite', display: 'inline-block' }}>🚨</span>
+                        <div>
+                            <div style={{ fontFamily: 'var(--font-primary)', fontWeight: 800, fontSize: '0.95rem', color: '#ff3864', letterSpacing: '-0.01em' }}>
+                                CROP DESTRUCTION TIMELINE — IMMEDIATE ACTION REQUIRED
+                            </div>
+                            <div style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+                                AI-estimated time until irreversible crop damage if no intervention is made
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Alert rows */}
+                    <div style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {ALL_ALERTS.filter(a => a.destructionTime && !dismissed.has(a.id)).map(alert => {
+                            const urgColor = alert.severity === 'critical' ? '#ff3864' : '#ff6b2b';
+                            const barPct = Math.min(100, Math.max(5, 100 - (alert.hoursLeft / 120) * 100));
+                            return (
+                                <div key={alert.id} style={{
+                                    display: 'flex', alignItems: 'center', gap: '16px',
+                                    padding: '14px 18px',
+                                    borderRadius: '12px',
+                                    background: `${urgColor}0d`,
+                                    border: `1px solid ${urgColor}33`,
+                                }}>
+                                    {/* Crop + zone */}
+                                    <div style={{ minWidth: '120px' }}>
+                                        <div style={{ fontWeight: 800, fontSize: '0.85rem', color: 'var(--color-text-primary)', fontFamily: 'var(--font-primary)' }}>
+                                            🌾 {alert.crop}
+                                        </div>
+                                        <div style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', marginTop: '2px' }}>
+                                            Zone {alert.zone} · {alert.type}
+                                        </div>
+                                    </div>
+
+                                    {/* Progress bar (urgency) */}
+                                    <div style={{ flex: 1 }}>
+                                        <div style={{ height: '6px', borderRadius: '100px', background: 'rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                                            <div style={{
+                                                height: '100%',
+                                                width: `${barPct}%`,
+                                                borderRadius: '100px',
+                                                background: `linear-gradient(90deg, ${urgColor}88, ${urgColor})`,
+                                                transition: 'width 0.6s ease',
+                                            }} />
+                                        </div>
+                                        <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.35)', fontFamily: 'var(--font-mono)', marginTop: '4px' }}>
+                                            Risk level: {barPct.toFixed(0)}%
+                                        </div>
+                                    </div>
+
+                                    {/* Destruction time badge — KEY INFO */}
+                                    <div style={{
+                                        flexShrink: 0,
+                                        textAlign: 'center',
+                                        padding: '8px 18px',
+                                        borderRadius: '10px',
+                                        background: `${urgColor}18`,
+                                        border: `1.5px solid ${urgColor}55`,
+                                        minWidth: '140px',
+                                    }}>
+                                        <div style={{ fontSize: '0.58rem', fontFamily: 'var(--font-mono)', color: urgColor, textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '2px' }}>
+                                            🕐 {alert.destructionLabel}
+                                        </div>
+                                        <div style={{ fontSize: '1.1rem', fontWeight: 900, fontFamily: 'var(--font-primary)', color: urgColor, letterSpacing: '-0.02em' }}>
+                                            {alert.destructionTime}
+                                        </div>
+                                        <div style={{ fontSize: '0.6rem', fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>
+                                            without intervention
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
+
             {/* Alert summary metrics */}
             <div className="grid-4" style={{ marginBottom: '24px' }}>
                 {[
@@ -90,6 +183,33 @@ export default function AlertCenter() {
                                         <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>{alert.time}</span>
                                     </div>
                                     <p style={{ margin: '0 0 6px', fontSize: '0.82rem', lineHeight: 1.5 }}>{alert.message}</p>
+
+                                    {/* ── Destruction Time Pill ── */}
+                                    {alert.destructionTime && (
+                                        <div style={{
+                                            display: 'inline-flex', alignItems: 'center', gap: '8px',
+                                            margin: '4px 0 8px',
+                                            padding: '5px 14px',
+                                            borderRadius: '8px',
+                                            background: alert.severity === 'critical' ? 'rgba(255,56,100,0.12)' : 'rgba(255,107,43,0.12)',
+                                            border: `1px solid ${alert.severity === 'critical' ? 'rgba(255,56,100,0.4)' : 'rgba(255,107,43,0.4)'}`,
+                                        }}>
+                                            <span style={{ fontSize: '0.75rem' }}>🕐</span>
+                                            <span style={{
+                                                fontFamily: 'var(--font-mono)',
+                                                fontSize: '0.72rem',
+                                                fontWeight: 700,
+                                                color: alert.severity === 'critical' ? '#ff3864' : '#ff6b2b',
+                                                letterSpacing: '0.03em',
+                                            }}>
+                                                {alert.destructionLabel} IN {alert.destructionTime}
+                                            </span>
+                                            <span style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.35)', fontFamily: 'var(--font-mono)' }}>
+                                                · without intervention
+                                            </span>
+                                        </div>
+                                    )}
+
                                     <div style={{ display: 'flex', gap: '12px', fontSize: '0.72rem', color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', alignItems: 'center' }}>
                                         <span>Zone: {alert.zone}</span>
                                         <span style={{ color: STRESS_COLORS[FIELD_ZONES.find(z => z.id === alert.zone)?.stressLevel || 'none'] }}>

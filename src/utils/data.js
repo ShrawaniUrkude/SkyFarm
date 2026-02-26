@@ -1,11 +1,11 @@
 // Simulated crop stress data — in production this would come from backend ML API
 export const FIELD_ZONES = [
-    { id: 'Z1', name: 'North Block A', area: 42.3, crop: 'Wheat (Triticum aestivum)', lat: 28.61, lon: 77.23, stressLevel: 'severe', stressScore: 87, waterContent: 18, nitrogenIndex: 0.31, ndvi: 0.42, ndwi: -0.28, lst: 42.1, alertAge: 2 },
-    { id: 'Z2', name: 'North Block B', area: 38.7, crop: 'Rice (Oryza sativa)', lat: 28.62, lon: 77.25, stressLevel: 'moderate', stressScore: 54, waterContent: 34, nitrogenIndex: 0.58, ndvi: 0.61, ndwi: -0.05, lst: 36.4, alertAge: 5 },
-    { id: 'Z3', name: 'East Section', area: 55.1, crop: 'Maize (Zea mays)', lat: 28.60, lon: 77.28, stressLevel: 'low', stressScore: 22, waterContent: 52, nitrogenIndex: 0.74, ndvi: 0.78, ndwi: 0.11, lst: 31.2, alertAge: null },
-    { id: 'Z4', name: 'West Quadrant', area: 29.4, crop: 'Soybean (Glycine max)', lat: 28.59, lon: 77.20, stressLevel: 'high', stressScore: 71, waterContent: 26, nitrogenIndex: 0.44, ndvi: 0.53, ndwi: -0.18, lst: 39.7, alertAge: 3 },
-    { id: 'Z5', name: 'South Section', area: 47.8, crop: 'Cotton (Gossypium)', lat: 28.57, lon: 77.24, stressLevel: 'none', stressScore: 9, waterContent: 61, nitrogenIndex: 0.82, ndvi: 0.85, ndwi: 0.19, lst: 28.9, alertAge: null },
-    { id: 'Z6', name: 'Central Core', area: 33.6, crop: 'Sunflower (Helianthus)', lat: 28.60, lon: 77.23, stressLevel: 'high', stressScore: 68, waterContent: 29, nitrogenIndex: 0.41, ndvi: 0.49, ndwi: -0.21, lst: 38.5, alertAge: 1 },
+    { id: 'Z1', name: 'North Block A', area: 42.3, crop: 'Wheat (Triticum aestivum)', lat: 28.61, lon: 77.23, stressLevel: 'severe', stressScore: 87, waterContent: 18, nitrogenIndex: 0.31, ndvi: 0.42, ndwi: -0.28, lst: 42.1, alertAge: 2, destroyedBy: '< 18 hours', hoursToDestruction: 18 },
+    { id: 'Z2', name: 'North Block B', area: 38.7, crop: 'Rice (Oryza sativa)', lat: 28.62, lon: 77.25, stressLevel: 'moderate', stressScore: 54, waterContent: 34, nitrogenIndex: 0.58, ndvi: 0.61, ndwi: -0.05, lst: 36.4, alertAge: 5, destroyedBy: '~5 days', hoursToDestruction: 120 },
+    { id: 'Z3', name: 'East Section', area: 55.1, crop: 'Maize (Zea mays)', lat: 28.60, lon: 77.28, stressLevel: 'low', stressScore: 22, waterContent: 52, nitrogenIndex: 0.74, ndvi: 0.78, ndwi: 0.11, lst: 31.2, alertAge: null, destroyedBy: null, hoursToDestruction: null },
+    { id: 'Z4', name: 'West Quadrant', area: 29.4, crop: 'Soybean (Glycine max)', lat: 28.59, lon: 77.20, stressLevel: 'high', stressScore: 71, waterContent: 26, nitrogenIndex: 0.44, ndvi: 0.53, ndwi: -0.18, lst: 39.7, alertAge: 3, destroyedBy: '~38 hours', hoursToDestruction: 38 },
+    { id: 'Z5', name: 'South Section', area: 47.8, crop: 'Cotton (Gossypium)', lat: 28.57, lon: 77.24, stressLevel: 'none', stressScore: 9, waterContent: 61, nitrogenIndex: 0.82, ndvi: 0.85, ndwi: 0.19, lst: 28.9, alertAge: null, destroyedBy: null, hoursToDestruction: null },
+    { id: 'Z6', name: 'Central Core', area: 33.6, crop: 'Sunflower (Helianthus)', lat: 28.60, lon: 77.23, stressLevel: 'high', stressScore: 68, waterContent: 29, nitrogenIndex: 0.41, ndvi: 0.49, ndwi: -0.21, lst: 38.5, alertAge: 1, destroyedBy: '~42 hours', hoursToDestruction: 42 },
 ];
 
 export const PIPELINE_STEPS = [
@@ -45,10 +45,22 @@ export const TIME_SERIES = [
 ];
 
 export const ALERTS = [
-    { id: 'A001', zone: 'Z1', severity: 'critical', type: 'Water Deficit', message: 'Soil moisture 72% below threshold. Immediate irrigation required.', time: '2h ago', previsual: true },
-    { id: 'A002', zone: 'Z6', severity: 'critical', type: 'Heat Stress', message: 'Canopy temperature 9.6°C above ambient. Heat stress detected.', time: '3h ago', previsual: true },
-    { id: 'A003', zone: 'Z4', severity: 'warning', type: 'N Deficiency', message: 'Red-edge index decline indicates early nitrogen deficiency.', time: '6h ago', previsual: true },
-    { id: 'A004', zone: 'Z2', severity: 'info', type: 'Mild Drought', message: 'Moderate water stress developing. Monitor for 48 hours.', time: '1d ago', previsual: false },
+    {
+        id: 'A001', zone: 'Z1', severity: 'critical', type: 'Water Deficit', message: 'Soil moisture 72% below threshold. Immediate irrigation required.', time: '2h ago', previsual: true,
+        crop: 'Wheat', destructionTime: '< 18 hours', destructionLabel: 'TOTAL CROP LOSS', hoursLeft: 18, emergencyAlert: true
+    },
+    {
+        id: 'A002', zone: 'Z6', severity: 'critical', type: 'Heat Stress', message: 'Canopy temperature 9.6°C above ambient. Heat stress detected.', time: '3h ago', previsual: true,
+        crop: 'Sunflower', destructionTime: '< 42 hours', destructionLabel: 'IRREVERSIBLE DAMAGE', hoursLeft: 42, emergencyAlert: true
+    },
+    {
+        id: 'A003', zone: 'Z4', severity: 'warning', type: 'N Deficiency', message: 'Red-edge index decline indicates early nitrogen deficiency.', time: '6h ago', previsual: true,
+        crop: 'Soybean', destructionTime: '~38 hours', destructionLabel: 'SEVERE YIELD LOSS', hoursLeft: 38, emergencyAlert: false
+    },
+    {
+        id: 'A004', zone: 'Z2', severity: 'info', type: 'Mild Drought', message: 'Moderate water stress developing. Monitor for 48 hours.', time: '1d ago', previsual: false,
+        crop: 'Rice', destructionTime: '~5 days', destructionLabel: 'MODERATE YIELD LOSS', hoursLeft: 120, emergencyAlert: false
+    },
 ];
 
 export const STRESS_COLORS = {

@@ -5,6 +5,10 @@ import Home from './pages/Home';
 import StressView from './pages/StressView';
 import Pipeline from './pages/Pipeline';
 import AlertCenter from './pages/AlertCenter';
+import AnalyzeField from './pages/AnalyzeField';
+import NutrientDeficiency from './pages/NutrientDeficiency';
+import GlobalOpsCenter from './pages/GlobalOpsCenter';
+import WaterLevel from './pages/WaterLevel';
 import { SpectralView, TimeSeries, Satellites, Reports, FieldCompare } from './pages/ExtraPages';
 
 /* ─── Star Field ─────────────────────────────────────────────────────────── */
@@ -51,6 +55,10 @@ export default function App() {
       case 'stressview': return <StressView />;
       case 'pipeline': return <Pipeline />;
       case 'alerts': return <AlertCenter />;
+      case 'analyze': return <AnalyzeField />;
+      case 'nutrients': return <NutrientDeficiency />;
+      case 'globalops': return <GlobalOpsCenter />;
+      case 'water': return <WaterLevel />;
       case 'spectral': return <SpectralView />;
       case 'history': return <TimeSeries />;
       case 'compare': return <FieldCompare />;
